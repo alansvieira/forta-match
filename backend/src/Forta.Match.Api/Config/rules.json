@@ -1,0 +1,47 @@
+[
+  {
+    "WorkflowName": "ReferralMatch",
+    "Rules": [
+      {
+        "RuleName": "ExclusionCriteria",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Patient does not meet inclusion criteria (age or crisis exclusion)",
+        "ErrorType": "Error",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.RiskLevel != \"crisis\" AND extraction.Age >= 18"
+      },
+      {
+        "RuleName": "LocationMatch",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Region not in service area",
+        "ErrorType": "Error",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.Region == \"Noord-Holland\" OR extraction.Region == \"Zuid-Holland\" OR extraction.Region == \"Utrecht\""
+      },
+      {
+        "RuleName": "CapacityCheck",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "No capacity or waiting time too long",
+        "ErrorType": "Error",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "capacity.AvailableSlots > 0 AND capacity.WaitingWeeks <= 12"
+      },
+      {
+        "RuleName": "InsurerCoverage",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Insurer not covered or cap exceeded",
+        "ErrorType": "Error",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "insurer.IsCovered == true AND insurer.CapRemaining > 0"
+      },
+      {
+        "RuleName": "DsmSupported",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "DSM classification uncertain or unsupported",
+        "ErrorType": "Warning",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.ProbableDsm != null AND extraction.ProbableDsm != \"\" AND extraction.ProbableDsm != \"unknown\""
+      }
+    ]
+  }
+]
