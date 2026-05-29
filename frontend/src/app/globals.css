@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f4f7f9;
+  --foreground: #0f2d3d;
+  --surface: #ffffff;
+  --muted: #f0f5f7;
+  --border: #d9e6ec;
+  --primary: #0891b2;
+  --primary-hover: #0e7490;
+  --primary-soft: #ecfeff;
+  --accent: #6b1d3a;
+  --accent-soft: #fdf2f6;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --text-muted: #475569;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+
+@layer base {
+  h1, h2, h3, h4 {
+    font-family: var(--font-heading), system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer components {
+  .page-container {
+    @apply mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8;
+  }
+
+  .glass-card {
+    @apply rounded-2xl border border-forta-border bg-white/90 shadow-sm backdrop-blur-sm;
+  }
+
+  .data-table {
+    @apply w-full text-sm;
+  }
+
+  .data-table thead tr {
+    @apply border-b border-forta-border text-left text-slate-500;
+  }
+
+  .data-table th {
+    @apply pb-3 pr-4 text-xs font-semibold uppercase tracking-wider;
+  }
+
+  .data-table tbody tr {
+    @apply border-b border-forta-border transition-colors duration-200;
+  }
+
+  .data-table tbody tr:hover {
+    @apply bg-forta-primary-soft/40;
+  }
+
+  .data-table td {
+    @apply py-3.5 pr-4;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
