@@ -28,3 +28,22 @@ public record UploadResult(
     string FileName,
     string Message
 );
+
+public record PrescanField(string Value, float Confidence);
+
+public record PrescanResult(
+    Guid ReferralId,
+    PrescanField? Name,
+    PrescanField? Bsn,
+    PrescanField? ContactDetails,
+    PrescanField? Email,
+    PrescanField? Phone,
+    PrescanField? ReferrerAgb,
+    PrescanField? ReferralDate,
+    PrescanField? HasSignature,
+    PrescanField? ProbableDsm,
+    PrescanField? Complaint,
+    PrescanField? Location,
+    PrescanField? Insurer,
+    string? LetterText
+);

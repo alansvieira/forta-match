@@ -106,6 +106,32 @@ public class ReviewController : ControllerBase
         return Ok(_referrals.ToDetailDto(referral));
     }
 
+    /// <summary>Secretariaat stuurt door naar screenteam (twijfel of weet het niet).</summary>
+    [HttpPost("{referralId:guid}/forward-screenteam")]
+    public async Task<ActionResult<ReferralDetailDto>> ForwardScreenteam(
+        Guid referralId,
+        [FromBody] ForwardScreenteamRequest request,
+        CancellationToken ct)
+    {
+        var referral = await _referrals.GetWithDetailsAsync(referralId, ct);
+        if (referral == null) return NotFound();
+
+        referral.Status    = ReferralStatus.ScreeningReview;
+        referral.UpdatedAt = DateTime.UtcNow;
+
+        _db.Decisions.Add(new Decision
+        {
+            ReferralId   = referralId,
+            DecisionType = "DoorgestuurdScreenteam",
+            Outcome      = FinalDecision.None,
+            Reason       = request.Reason ?? "Doorgestuurd naar screenteam door secretariaat",
+            DecidedBy    = request.DecidedBy ?? "Secretariaat",
+        });
+
+        await _db.SaveChangesAsync(ct);
+        return Ok(_referrals.ToDetailDto(referral));
+    }
+
     [HttpPost("{referralId:guid}/validate")]
     public async Task<ActionResult<ReferralDetailDto>> Validate(Guid referralId, [FromBody] ValidateRequest request, CancellationToken ct)
     {

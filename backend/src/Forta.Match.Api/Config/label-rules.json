@@ -1,0 +1,134 @@
+[
+  {
+    "WorkflowName": "FortaVolwassenen",
+    "Rules": [
+      {
+        "RuleName": "LeeftijdCheck",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Patiënt jonger dan 18 jaar — jeugd-GGZ vereist",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.Age >= 18"
+      },
+      {
+        "RuleName": "CrisisUitsluiting",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Crisisniveau risico — doorverwijzen naar crisisdienst",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.RiskLevel != \"crisis\""
+      },
+      {
+        "RuleName": "LocatieCheck",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Buiten servicegebied Forta Volwassenen",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.Region == \"Utrecht\" OR extraction.Region == \"Noord-Holland\" OR extraction.Region == \"Zuid-Holland\" OR extraction.Region == \"Gelderland\" OR extraction.Region == \"Flevoland\""
+      },
+      {
+        "RuleName": "DsmAanwezig",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "DSM-classificatie ontbreekt of onbekend",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.ProbableDsm != null AND extraction.ProbableDsm != \"\" AND extraction.ProbableDsm != \"unknown\""
+      },
+      {
+        "RuleName": "GGZContextCheck",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Geen duidelijke GGZ-hulpvraag gedetecteerd",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.Symptoms != null AND extraction.Symptoms != \"\""
+      }
+    ]
+  },
+  {
+    "WorkflowName": "DrBosman",
+    "Rules": [
+      {
+        "RuleName": "LeeftijdCheck",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Patiënt jonger dan 25 jaar — DR BOSMAN behandelt vanaf 25",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.Age >= 25"
+      },
+      {
+        "RuleName": "CrisisUitsluiting",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Crisisniveau niet passend bij DR BOSMAN profiel",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.RiskLevel != \"crisis\""
+      },
+      {
+        "RuleName": "SpecialismeMatch",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Hulpvraag niet passend bij specialisme DR BOSMAN (persoonlijkheid / psychosomatiek)",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "(extraction.ProbableDsm != null AND extraction.ProbableDsm.StartsWith(\"F6\")) OR (extraction.Symptoms != null AND (extraction.Symptoms.Contains(\"persoonlijkheid\") OR extraction.Symptoms.Contains(\"psychosomat\") OR extraction.Symptoms.Contains(\"borderline\") OR extraction.Symptoms.Contains(\"emotiereg\")))"
+      },
+      {
+        "RuleName": "LocatieCheck",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Buiten servicegebied DR BOSMAN",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.Region == \"Utrecht\" OR extraction.Region == \"Noord-Holland\" OR extraction.Region == \"Zuid-Holland\""
+      }
+    ]
+  },
+  {
+    "WorkflowName": "HumanConcern",
+    "Rules": [
+      {
+        "RuleName": "LeeftijdCheck",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Patiënt jonger dan 18 jaar",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.Age >= 18"
+      },
+      {
+        "RuleName": "CrisisUitsluiting",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Crisisniveau — doorverwijzen naar crisisdienst",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.RiskLevel != \"crisis\""
+      },
+      {
+        "RuleName": "ComplexiteitCheck",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Hulpvraag niet complex of intercultureel genoeg voor Human Concern",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "(extraction.Context != null AND (extraction.Context.Contains(\"intercul\") OR extraction.Context.Contains(\"complex\") OR extraction.Context.Contains(\"cultuur\") OR extraction.Context.Contains(\"migrant\"))) OR (extraction.RiskLevel == \"high\") OR (extraction.Symptoms != null AND extraction.Symptoms.Contains(\"comorbid\"))"
+      },
+      {
+        "RuleName": "DsmAanwezig",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "DSM-classificatie ontbreekt",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.ProbableDsm != null AND extraction.ProbableDsm != \"\""
+      }
+    ]
+  },
+  {
+    "WorkflowName": "Psytrack",
+    "Rules": [
+      {
+        "RuleName": "LeeftijdCheck",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Patiënt jonger dan 18 jaar",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.Age >= 18"
+      },
+      {
+        "RuleName": "TraumaProfielCheck",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Geen PTSS- of traumaprofiel gedetecteerd — Psytrack is PTSS-specialist",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "(extraction.ProbableDsm != null AND extraction.ProbableDsm.StartsWith(\"F43\")) OR (extraction.Symptoms != null AND (extraction.Symptoms.Contains(\"trauma\") OR extraction.Symptoms.Contains(\"ptss\") OR extraction.Symptoms.Contains(\"herbelev\") OR extraction.Symptoms.Contains(\"PTSS\")))"
+      },
+      {
+        "RuleName": "NietZiekenhuisverwijzing",
+        "SuccessEvent": "PASS",
+        "ErrorMessage": "Ziekenhuisverwijzing niet passend bij Psytrack — ambulante setting vereist",
+        "RuleExpressionType": "LambdaExpression",
+        "Expression": "extraction.Context == null OR !extraction.Context.Contains(\"ziekenhuis\")"
+      }
+    ]
+  }
+]

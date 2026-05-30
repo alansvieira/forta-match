@@ -110,6 +110,66 @@ public class IntakeController : ControllerBase
             .FirstAsync(r => r.Id == referral.Id, ct)));
     }
 
+    [HttpPost("{referralId:guid}/prescan")]
+    public async Task<ActionResult<PrescanResult>> Prescan(Guid referralId, CancellationToken ct)
+    {
+        var referral = await _db.Referrals.Include(r => r.Patient)
+            .FirstOrDefaultAsync(r => r.Id == referralId, ct);
+        if (referral == null) return NotFound();
+
+        // Try to read text from the uploaded file
+        var fileText = referral.LetterText ?? "";
+
+        if (string.IsNullOrWhiteSpace(fileText) && !string.IsNullOrWhiteSpace(referral.UploadedFilePath))
+        {
+            var uploadsDir = Path.Combine(_env.ContentRootPath, "uploads");
+            var filePath   = Path.Combine(uploadsDir, referral.UploadedFilePath);
+
+            if (System.IO.File.Exists(filePath))
+            {
+                try
+                {
+                    var bytes = await System.IO.File.ReadAllBytesAsync(filePath, ct);
+                    var extracted = ExtractReadableText(bytes);
+                    if (extracted.Length > 50) fileText = extracted;
+                }
+                catch { /* ignore, use empty string */ }
+            }
+        }
+
+        var mistral = HttpContext.RequestServices.GetRequiredService<MistralAiService>();
+        var result  = await mistral.PrescanForIntakeAsync(referralId, fileText, ct);
+        return Ok(result);
+    }
+
+    /// <summary>Extracts readable ASCII words from binary/PDF bytes.</summary>
+    private static string ExtractReadableText(byte[] bytes)
+    {
+        var sb      = new System.Text.StringBuilder();
+        bool inWord = false;
+
+        foreach (var b in bytes)
+        {
+            if (b is >= 32 and < 127)
+            {
+                sb.Append((char)b);
+                inWord = true;
+            }
+            else
+            {
+                if (inWord) sb.Append(' ');
+                inWord = false;
+            }
+        }
+
+        // Keep only tokens that look like real words / numbers
+        var words = sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length >= 2 && w.All(c => char.IsLetterOrDigit(c) || c is '-' or '.' or '@' or '/'))
+            .ToArray();
+
+        return string.Join(" ", words);
+    }
+
     [HttpPost("{referralId:guid}/validate")]
     public async Task<ActionResult<CompletenessResult>> Validate(Guid referralId, CancellationToken ct)
     {

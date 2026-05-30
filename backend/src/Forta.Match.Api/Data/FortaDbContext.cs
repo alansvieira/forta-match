@@ -12,6 +12,8 @@ public class FortaDbContext : DbContext
     public DbSet<Extraction> Extractions => Set<Extraction>();
     public DbSet<Decision> Decisions => Set<Decision>();
     public DbSet<RuleConfiguration> RuleConfigurations => Set<RuleConfiguration>();
+    public DbSet<EmailNotification> EmailNotifications => Set<EmailNotification>();
+    public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

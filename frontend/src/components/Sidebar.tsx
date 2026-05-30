@@ -11,13 +11,15 @@ import {
   Settings2,
   Sparkles,
 } from "lucide-react";
+import { NotificationBell } from "./NotificationBell";
 
 const nav = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/intake", label: "Intake", icon: FileUp },
-  { href: "/referrals", label: "Referrals", icon: List },
-  { href: "/review", label: "Screening", icon: ClipboardCheck },
-  { href: "/rules", label: "Rules", icon: Settings2 },
+  { href: "/",              label: "Dashboard",          icon: LayoutDashboard },
+  { href: "/intake",        label: "Nieuwe intake",       icon: FileUp          },
+  { href: "/referrals",     label: "Aanmeldingen",        icon: List            },
+  { href: "/review",        label: "Screenteam",          icon: ClipboardCheck  },
+  { href: "/rules",         label: "Regelconfiguratie",   icon: Settings2       },
+  { href: "/instellingen",  label: "E-mailtemplates",     icon: Settings2       },
 ];
 
 export function Sidebar() {
@@ -25,21 +27,22 @@ export function Sidebar() {
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-72 flex-col border-r border-forta-border bg-white shadow-sidebar lg:flex">
-      <div className="flex items-center gap-3 px-6 py-6">
+      <div className="flex items-center gap-3 px-4 py-5">
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-forta-primary to-forta-primary-hover shadow-sm">
           <Sparkles className="h-5 w-5 text-white" strokeWidth={2} />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <h1 className="font-heading text-lg font-bold tracking-tight text-forta-primary-dark">
             Forta Match
           </h1>
-          <p className="text-xs font-medium text-slate-500">AI advises · Humans decide</p>
+          <p className="text-xs font-medium text-slate-500">AI adviseert · Mensen beslissen</p>
         </div>
+        <NotificationBell />
       </div>
 
       <nav className="flex-1 space-y-1 px-4 py-2">
         <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-          Navigation
+          Navigatie
         </p>
         {nav.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || (href !== "/" && pathname.startsWith(href));
@@ -71,10 +74,11 @@ export function Sidebar() {
       </nav>
 
       <div className="mx-4 mb-4 rounded-xl border border-forta-border bg-forta-muted/60 p-4">
-        <p className="text-xs font-semibold text-forta-primary-dark">Principles</p>
+        <p className="text-xs font-semibold text-forta-primary-dark">Principes</p>
         <ul className="mt-2 space-y-1 text-[11px] leading-relaxed text-slate-500">
           <li>Privacy by design</li>
-          <li>Matching across labels</li>
+          <li>Mens beslist altijd</li>
+          <li>AI adviseert</li>
         </ul>
       </div>
     </aside>

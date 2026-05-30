@@ -19,6 +19,11 @@ public record ValidateRequest(
     string? Reason
 );
 
+public record ForwardScreenteamRequest(
+    string? Reason,
+    string? DecidedBy
+);
+
 public record ReferralSummaryDto(
     Guid Id,
     string PatientName,

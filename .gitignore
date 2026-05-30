@@ -11,10 +11,14 @@ frontend/node_modules/
 frontend/.next/
 frontend/out/
 
-# Env
+# Env & secrets
 config/.env
 frontend/.env
 frontend/.env.local
+
+# DB write-ahead log
+backend/**/*.db-shm
+backend/**/*.db-wal
 
 # IDE
 .vs/

@@ -66,6 +66,17 @@ public class RulesConfigController : ControllerBase
         return Ok(new WorkflowRulesDto(config.WorkflowName, config.RulesJson, config.UpdatedAt));
     }
 
+    [HttpPost("generate")]
+    public async Task<ActionResult<GenerateRuleResponse>> Generate([FromBody] GenerateRuleRequest request, CancellationToken ct)
+    {
+        var config       = await _db.RuleConfigurations.FirstOrDefaultAsync(r => r.WorkflowName == request.WorkflowName, ct);
+        var currentRules = config?.RulesJson ?? "[]";
+
+        var mistral = HttpContext.RequestServices.GetRequiredService<MistralAiService>();
+        var result  = await mistral.GenerateRuleAsync(request.Description, currentRules, ct);
+        return Ok(result);
+    }
+
     [HttpPost("test")]
     public async Task<ActionResult<TestRulesResult>> Test([FromBody] TestRulesRequest request, CancellationToken ct)
     {

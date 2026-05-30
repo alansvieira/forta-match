@@ -85,3 +85,82 @@ export interface WorkflowRules {
   rulesJson: string;
   updatedAt: string;
 }
+
+export interface PrescanField {
+  value: string;
+  confidence: number;
+}
+
+export interface PrescanResult {
+  referralId: string;
+  name:            PrescanField | null;
+  bsn:             PrescanField | null;
+  contactDetails:  PrescanField | null;
+  email:           PrescanField | null;
+  phone:           PrescanField | null;
+  referrerAgb:     PrescanField | null;
+  referralDate:    PrescanField | null;
+  hasSignature:    PrescanField | null;
+  probableDsm:     PrescanField | null;
+  complaint:       PrescanField | null;
+  location:        PrescanField | null;
+  insurer:         PrescanField | null;
+  letterText:      string | null;
+}
+
+export interface GenerateRuleResponse {
+  ruleName:    string;
+  ruleJson:    string;
+  explanation: string;
+  success:     boolean;
+  error:       string | null;
+}
+
+// ── Pilot 1a types ───────────────────────────────────────────────────────────
+
+export interface LabelMatchResult {
+  labelName:      string;
+  displayName:    string;
+  score:          number;
+  isMatch:        boolean;
+  recommendation: "JA" | "TWIJFEL" | "NEE";
+  ruleResults:    { ruleName: string; passed: boolean; message: string | null }[];
+  reasoning:      string | null;
+}
+
+export interface LabelRankingResult {
+  labels:                 LabelMatchResult[];
+  topLabel:               string | null;
+  overallRecommendation:  string;
+}
+
+// ── Email / notifications ─────────────────────────────────────────────────────
+
+export interface EmailNotification {
+  id:          string;
+  subject:     string;
+  fromEmail:   string;
+  fromName:    string;
+  body:        string;
+  isRead:      boolean;
+  isProcessed: boolean;
+  referralId:  string | null;
+  receivedAt:  string;
+}
+
+export interface EmailTemplate {
+  id:          string;
+  name:        string;
+  displayName: string;
+  subject:     string;
+  body:        string;
+  updatedAt:   string;
+}
+
+export interface HumanFeedbackRequest {
+  chosenLabel:  string;
+  outcome:      string;
+  reasoning:    string;
+  agreedWithAi: boolean;
+  decidedBy?:   string;
+}
