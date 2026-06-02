@@ -183,8 +183,8 @@ function RulesEngineExplainer({ activeWorkflow, ruleCount }: {
           </div>
 
           <p className="mt-4 text-[11px] text-slate-400">
-            Regels worden geëvalueerd bij elke AI Match. Wijzigingen in de JSON worden direct toegepast na opslaan.
-            Gebruik de AI-assistent voor hulp bij het formuleren van nieuwe regels.
+            Regels worden geëvalueerd bij elke AI Match. Bewerk expressies inline op de regelkaarten of via de JSON-tab;
+            klik <strong>Opslaan &amp; herladen</strong> om wijzigingen actief te maken. Gebruik de AI-assistent voor nieuwe regels.
           </p>
         </div>
       )}
@@ -195,10 +195,12 @@ function RulesEngineExplainer({ activeWorkflow, ruleCount }: {
 // ── Rule card ────────────────────────────────────────────────────────────────
 
 function RuleCard({
-  rule, onDelete,
+  rule, onDelete, onExpressionChange, onErrorMessageChange,
 }: {
   rule: RuleObj;
   onDelete: () => void;
+  onExpressionChange: (expression: string) => void;
+  onErrorMessageChange: (message: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const Icon  = RULE_ICONS[rule.RuleName] ?? Settings2;
@@ -252,19 +254,38 @@ function RuleCard({
       </button>
 
       {expanded && (
-        <div className="border-t border-forta-border px-4 pb-4 pt-3 space-y-2">
+        <div className="border-t border-forta-border px-4 pb-4 pt-3 space-y-4">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Expressie</p>
-            <code className="block rounded-lg bg-forta-muted px-3 py-2 text-xs font-mono text-forta-primary-dark">
-              {rule.Expression}
-            </code>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+              Expressie
+              <span className="ml-2 font-normal normal-case text-slate-400">— inline bewerkbaar</span>
+            </p>
+            <Textarea
+              value={rule.Expression}
+              onChange={e => onExpressionChange(e.target.value)}
+              onClick={e => e.stopPropagation()}
+              rows={4}
+              spellCheck={false}
+              className="font-mono text-xs leading-relaxed text-forta-primary-dark"
+              placeholder="bijv. extraction.Age >= 18 AND extraction.RiskLevel != &quot;crisis&quot;"
+            />
           </div>
-          {rule.ErrorMessage && (
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Foutmelding bij afwijzing</p>
-              <p className="text-sm text-slate-600">{rule.ErrorMessage}</p>
-            </div>
-          )}
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+              Foutmelding bij afwijzing
+            </p>
+            <Textarea
+              value={rule.ErrorMessage ?? ""}
+              onChange={e => onErrorMessageChange(e.target.value)}
+              onClick={e => e.stopPropagation()}
+              rows={2}
+              className="text-sm text-slate-700"
+              placeholder="Tekst die wordt getoond als de regel faalt"
+            />
+          </div>
+          <p className="text-[10px] text-slate-400">
+            Wijzigingen worden direct in de JSON bijgewerkt. Klik <strong>Opslaan &amp; herladen</strong> om ze actief te maken in de engine.
+          </p>
         </div>
       )}
     </div>
@@ -346,6 +367,18 @@ export default function RulesPage() {
   const handleDeleteRule = (wfIdx: number, ruleIdx: number) => {
     const updated = workflows.map((wf, wi) =>
       wi === wfIdx ? { ...wf, Rules: wf.Rules.filter((_, ri) => ri !== ruleIdx) } : wf
+    );
+    syncJson(updated);
+  };
+
+  const handleUpdateRule = (wfIdx: number, ruleIdx: number, patch: Partial<RuleObj>) => {
+    const updated = workflows.map((wf, wi) =>
+      wi === wfIdx
+        ? {
+            ...wf,
+            Rules: wf.Rules.map((r, ri) => (ri === ruleIdx ? { ...r, ...patch } : r)),
+          }
+        : wf
     );
     syncJson(updated);
   };
@@ -447,6 +480,8 @@ export default function RulesPage() {
                 key={rule.RuleName + ri}
                 rule={rule}
                 onDelete={() => handleDeleteRule(0, ri)}
+                onExpressionChange={expr => handleUpdateRule(0, ri, { Expression: expr })}
+                onErrorMessageChange={msg => handleUpdateRule(0, ri, { ErrorMessage: msg })}
               />
             ))
           )}

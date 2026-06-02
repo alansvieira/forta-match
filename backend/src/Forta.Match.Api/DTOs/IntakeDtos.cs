@@ -45,5 +45,8 @@ public record PrescanResult(
     PrescanField? Complaint,
     PrescanField? Location,
     PrescanField? Insurer,
-    string? LetterText
+    string? LetterText,
+    /// <summary>mistral | local (rule-based fallback)</summary>
+    string AiSource = "local",
+    string? AiMessage = null
 );

@@ -14,7 +14,9 @@ import type {
   WorkflowRules,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5072";
+// Empty = same-origin /api/* proxied by next.config.mjs (avoids CORS in dev).
+// Set NEXT_PUBLIC_API_URL=http://localhost:5072 only if you skip the proxy.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export const api = axios.create({
   baseURL: API_BASE,

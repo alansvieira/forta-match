@@ -21,8 +21,7 @@ public class MistralAiService
 
     public async Task<Extraction> ExtractAsync(Referral referral, CancellationToken ct = default)
     {
-        var apiKey = _configuration["Mistral:ApiKey"]
-                     ?? Environment.GetEnvironmentVariable("MISTRAL_API_KEY");
+        var apiKey = GetMistralApiKey();
 
         var letterText = referral.LetterText ?? "";
         if (string.IsNullOrWhiteSpace(letterText) && !string.IsNullOrWhiteSpace(referral.Complaint))
@@ -107,13 +106,15 @@ public class MistralAiService
 
     public async Task<PrescanResult> PrescanForIntakeAsync(Guid referralId, string fileText, CancellationToken ct = default)
     {
-        var apiKey = _configuration["Mistral:ApiKey"]
-                     ?? Environment.GetEnvironmentVariable("MISTRAL_API_KEY");
+        var apiKey = GetMistralApiKey();
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            _logger.LogWarning("Mistral API key not configured; using mock prescan");
-            return CreateMockPrescan(referralId, fileText);
+            _logger.LogWarning("Mistral API key not configured; using local letter parser");
+            return ReferralLetterParser.Parse(referralId, fileText) with
+            {
+                AiMessage = "Mistral API-sleutel ontbreekt. Vul MISTRAL_API_KEY in config/.env in voor AI-extractie."
+            };
         }
 
         try
@@ -164,21 +165,38 @@ public class MistralAiService
                 .GetProperty("content")
                 .GetString() ?? "{}";
 
-            return ParsePrescan(referralId, content, fileText);
+            var parsed = ParsePrescan(referralId, content, fileText);
+            if (parsed.AiSource == "mistral")
+                return parsed;
+
+            _logger.LogWarning("Mistral response could not be parsed; using local letter parser");
+            return ReferralLetterParser.Parse(referralId, fileText) with
+            {
+                AiMessage = "Mistral-antwoord kon niet worden verwerkt; velden zijn lokaal uit de brieftekst gehaald."
+            };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Mistral prescan failed; falling back to mock");
-            return CreateMockPrescan(referralId, fileText);
+            _logger.LogError(ex, "Mistral prescan failed; using local letter parser");
+            return ReferralLetterParser.Parse(referralId, fileText) with
+            {
+                AiMessage = $"Mistral-aanroep mislukt: {ex.Message}"
+            };
         }
+    }
+
+    private string? GetMistralApiKey()
+    {
+        var key = _configuration["Mistral:ApiKey"]
+                  ?? Environment.GetEnvironmentVariable("MISTRAL_API_KEY");
+        return string.IsNullOrWhiteSpace(key) ? null : key.Trim();
     }
 
     // ─── Rule generation from natural language ─────────────────────────────
 
     public async Task<GenerateRuleResponse> GenerateRuleAsync(string description, string currentRulesJson, CancellationToken ct = default)
     {
-        var apiKey = _configuration["Mistral:ApiKey"]
-                     ?? Environment.GetEnvironmentVariable("MISTRAL_API_KEY");
+        var apiKey = GetMistralApiKey();
 
         if (string.IsNullOrWhiteSpace(apiKey))
             return CreateMockGeneratedRule(description);
@@ -271,10 +289,14 @@ public class MistralAiService
                     var s = el.GetString();
                     return s is not null and not "" ? new PrescanField(s, 0.5f) : null;
                 }
+                if (el.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                    return new PrescanField(el.GetBoolean() ? "true" : "false", 0.85f);
+                if (el.ValueKind == JsonValueKind.Number)
+                    return new PrescanField(el.GetRawText(), 0.5f);
                 return null;
             }
 
-            return new PrescanResult(
+            var result = new PrescanResult(
                 referralId,
                 GetField("name"),
                 GetField("bsn"),
@@ -288,51 +310,22 @@ public class MistralAiService
                 GetField("complaint"),
                 GetField("location"),
                 GetField("insurer"),
-                letterText.Length > 100 ? letterText : null
-            );
+                DocumentTextExtractor.LooksReadable(letterText) ? letterText : null,
+                "mistral",
+                null);
+
+            return result.Name is not null || result.Bsn is not null
+                ? result
+                : result with { AiSource = "local" };
         }
-        catch
+        catch (Exception ex)
         {
-            return CreateMockPrescan(referralId, letterText);
+            return new PrescanResult(
+                referralId, null, null, null, null, null, null, null, null, null, null, null, null,
+                DocumentTextExtractor.LooksReadable(letterText) ? letterText : null,
+                "local",
+                $"JSON-parsefout: {ex.Message}");
         }
-    }
-
-    private static PrescanResult CreateMockPrescan(Guid referralId, string fileText)
-    {
-        var lower = fileText.ToLowerInvariant();
-        var isAdhd  = lower.Contains("adhd")  || lower.Contains("concentratie");
-        var isPtss  = lower.Contains("ptss")  || lower.Contains("trauma");
-        var isAngst = lower.Contains("angst") || lower.Contains("paniek");
-
-        var dsm = isAdhd  ? "ADHD (F90.0)"
-                : isPtss  ? "PTSS (F43.1)"
-                : isAngst ? "Angststoornis (F41.1)"
-                          : "Depressieve stoornis (F32.1)";
-
-        var complaint = isAdhd
-            ? "Vermoeden ADHD bij volwassene. Concentratieproblemen, impulsiviteit en onrust."
-            : isPtss
-                ? "Klachten passend bij PTSS na trauma. Herbelevingen, vermijding en hyperalertheid."
-                : "Angst- en paniekaanvallen, spanning en somberheid. Verzoek tot behandeling.";
-
-        return new PrescanResult(
-            referralId,
-            new PrescanField("J. de Vries",                  0.88f),
-            new PrescanField("123456789",                     0.72f),
-            new PrescanField("Hoofdstraat 12, 3555 HW Utrecht", 0.91f),
-            new PrescanField("j.devries@email.nl",           0.65f),
-            new PrescanField("06-12345678",                  0.78f),
-            new PrescanField("73732118",                     0.82f),
-            new PrescanField(DateTime.UtcNow.AddDays(-5).ToString("yyyy-MM-dd"), 0.95f),
-            new PrescanField("true",                         0.88f),
-            new PrescanField(dsm,                            0.76f),
-            new PrescanField(complaint,                      0.83f),
-            new PrescanField("Utrecht",                      0.91f),
-            new PrescanField("Zilveren Kruis",               0.68f),
-            fileText.Length > 100
-                ? fileText
-                : $"Demo verwijsbrief — {(isAdhd ? "ADHD" : isPtss ? "PTSS" : "Angst")} gerelateerde hulpvraag."
-        );
     }
 
     private static GenerateRuleResponse CreateMockGeneratedRule(string description)

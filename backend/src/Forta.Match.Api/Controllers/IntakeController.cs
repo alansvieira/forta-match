@@ -13,12 +13,18 @@ public class IntakeController : ControllerBase
 {
     private readonly FortaDbContext _db;
     private readonly CompletenessService _completeness;
+    private readonly DocumentTextExtractor _documentText;
     private readonly IWebHostEnvironment _env;
 
-    public IntakeController(FortaDbContext db, CompletenessService completeness, IWebHostEnvironment env)
+    public IntakeController(
+        FortaDbContext db,
+        CompletenessService completeness,
+        DocumentTextExtractor documentText,
+        IWebHostEnvironment env)
     {
         _db = db;
         _completeness = completeness;
+        _documentText = documentText;
         _env = env;
     }
 
@@ -38,6 +44,11 @@ public class IntakeController : ControllerBase
         await using (var stream = new FileStream(filePath, FileMode.Create))
             await file.CopyToAsync(stream, ct);
 
+        string? extractedText = null;
+        var text = await _documentText.ExtractFromFileAsync(filePath, ct);
+        if (DocumentTextExtractor.LooksReadable(text))
+            extractedText = text;
+
         Referral referral;
         if (referralId.HasValue)
         {
@@ -45,6 +56,8 @@ public class IntakeController : ControllerBase
                          ?? throw new InvalidOperationException("Referral not found");
             referral.UploadedFileName = file.FileName;
             referral.UploadedFilePath = safeName;
+            if (extractedText != null)
+                referral.LetterText = extractedText;
             referral.UpdatedAt = DateTime.UtcNow;
         }
         else
@@ -55,6 +68,7 @@ public class IntakeController : ControllerBase
                 Patient = patient,
                 UploadedFileName = file.FileName,
                 UploadedFilePath = safeName,
+                LetterText = extractedText,
                 Status = ReferralStatus.Draft
             };
             _db.Referrals.Add(referral);
@@ -90,7 +104,9 @@ public class IntakeController : ControllerBase
         patient.Email = request.Email;
         patient.Phone = request.Phone;
 
-        referral.ReferrerAgb = request.ReferrerAgb;
+        referral.ReferrerAgb = string.IsNullOrWhiteSpace(request.ReferrerAgb)
+            ? null
+            : request.ReferrerAgb.Trim();
         referral.ReferralDate = request.ReferralDate;
         referral.HasSignature = request.HasSignature;
         referral.ProbableDsm = request.ProbableDsm;
@@ -117,57 +133,29 @@ public class IntakeController : ControllerBase
             .FirstOrDefaultAsync(r => r.Id == referralId, ct);
         if (referral == null) return NotFound();
 
-        // Try to read text from the uploaded file
-        var fileText = referral.LetterText ?? "";
+        var fileText = DocumentTextExtractor.LooksReadable(referral.LetterText)
+            ? referral.LetterText!
+            : "";
 
-        if (string.IsNullOrWhiteSpace(fileText) && !string.IsNullOrWhiteSpace(referral.UploadedFilePath))
+        if (!string.IsNullOrWhiteSpace(referral.UploadedFilePath))
         {
-            var uploadsDir = Path.Combine(_env.ContentRootPath, "uploads");
-            var filePath   = Path.Combine(uploadsDir, referral.UploadedFilePath);
-
+            var filePath = Path.Combine(_env.ContentRootPath, "uploads", referral.UploadedFilePath);
             if (System.IO.File.Exists(filePath))
             {
-                try
+                var extracted = await _documentText.ExtractFromFileAsync(filePath, ct);
+                if (DocumentTextExtractor.LooksReadable(extracted))
                 {
-                    var bytes = await System.IO.File.ReadAllBytesAsync(filePath, ct);
-                    var extracted = ExtractReadableText(bytes);
-                    if (extracted.Length > 50) fileText = extracted;
+                    fileText = extracted;
+                    referral.LetterText = extracted;
+                    referral.UpdatedAt = DateTime.UtcNow;
+                    await _db.SaveChangesAsync(ct);
                 }
-                catch { /* ignore, use empty string */ }
             }
         }
 
         var mistral = HttpContext.RequestServices.GetRequiredService<MistralAiService>();
         var result  = await mistral.PrescanForIntakeAsync(referralId, fileText, ct);
         return Ok(result);
-    }
-
-    /// <summary>Extracts readable ASCII words from binary/PDF bytes.</summary>
-    private static string ExtractReadableText(byte[] bytes)
-    {
-        var sb      = new System.Text.StringBuilder();
-        bool inWord = false;
-
-        foreach (var b in bytes)
-        {
-            if (b is >= 32 and < 127)
-            {
-                sb.Append((char)b);
-                inWord = true;
-            }
-            else
-            {
-                if (inWord) sb.Append(' ');
-                inWord = false;
-            }
-        }
-
-        // Keep only tokens that look like real words / numbers
-        var words = sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Where(w => w.Length >= 2 && w.All(c => char.IsLetterOrDigit(c) || c is '-' or '.' or '@' or '/'))
-            .ToArray();
-
-        return string.Join(" ", words);
     }
 
     [HttpPost("{referralId:guid}/validate")]

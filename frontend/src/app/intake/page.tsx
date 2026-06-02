@@ -272,17 +272,27 @@ export default function IntakePage() {
     } finally { setLoading(false); }
   };
 
+  const saveRegistration = async () => {
+    if (!referralId) throw new Error("Geen referral");
+    return intakeApi.register({
+      ...form,
+      referrerAgb: form.referrerAgb.trim(),
+      referralDate: form.referralDate ? new Date(form.referralDate).toISOString() : null,
+      referralId,
+    });
+  };
+
   const handleRegister = async () => {
     setLoading(true); setError(null); setSuccess(null);
     try {
-      const data = await intakeApi.register({
-        ...form,
-        referralDate: form.referralDate ? new Date(form.referralDate).toISOString() : null,
-        referralId:   referralId ?? undefined,
-      });
+      const data = await saveRegistration();
       setReferralId(data.id);
       setVisited(v => [...v, "validate"]);
       goTo("validate");
+      const result = await intakeApi.validate(data.id);
+      setMissingFields(result.missingFields);
+      if (!result.isComplete)
+        setError(`Ontbrekende velden: ${result.missingFields.join(", ")}`);
     } catch { setError("Registratie mislukt."); }
     finally { setLoading(false); }
   };
@@ -291,6 +301,7 @@ export default function IntakePage() {
     if (!referralId) return;
     setLoading(true); setError(null); setSuccess(null);
     try {
+      await saveRegistration();
       const result = await intakeApi.validate(referralId);
       if (result.isComplete) {
         setMissingFields([]);
@@ -425,6 +436,17 @@ export default function IntakePage() {
                   <span><strong>Binnengekomen via e-mail</strong> — bijlage automatisch ingelezen door Mistral AI.</span>
                 </div>
               )}
+              {prescan?.aiSource === "local" && (
+                <div className="mb-4 flex items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                  <Bot className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+                  <span>
+                    <strong>Lokale extractie</strong> — velden zijn uit de brieftekst gehaald.
+                    {prescan.aiMessage
+                      ? <> {prescan.aiMessage}</>
+                      : <> Zet <code className="rounded bg-sky-100 px-1">MISTRAL_API_KEY</code> in <code className="rounded bg-sky-100 px-1">config/.env</code> voor Mistral AI.</>}
+                  </span>
+                </div>
+              )}
               {aiFilledCount > 0 && (
                 <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-800">
                   <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
@@ -485,6 +507,9 @@ export default function IntakePage() {
               <p className="text-sm text-slate-500">Naam, BSN, contact, AGB-code, datum, handtekening, DSM, hulpvraag, locatie</p>
             </CardHeader>
             <CardContent className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Wijzigingen op de registratiestap worden hier automatisch opgeslagen voordat de check draait.
+              </p>
               {missingFields.length > 0 ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                   <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-900">

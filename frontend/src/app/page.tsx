@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { PageSkeleton } from "@/components/Skeleton";
 import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/Alert";
 import {
   Activity,
   CheckCircle2,
@@ -30,18 +31,38 @@ export default function DashboardPage() {
   const [referrals,     setReferrals]     = useState<ReferralSummary[]>([]);
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStats | null>(null);
   const [loading,       setLoading]       = useState(true);
+  const [apiError,      setApiError]      = useState<string | null>(null);
 
   useEffect(() => {
+    setApiError(null);
     Promise.all([referralsApi.stats(), referralsApi.list(), referralsApi.feedbackStats().catch(() => null)])
       .then(([s, r, fs]) => {
         setStats(s);
         setReferrals(r.slice(0, 8));
         if (fs) setFeedbackStats(fs);
       })
+      .catch(() => {
+        setApiError(
+          "Kan geen verbinding maken met de API. Start de backend: cd backend/src/Forta.Match.Api && dotnet run"
+        );
+      })
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <PageSkeleton />;
+
+  if (apiError) {
+    return (
+      <div className="page-container max-w-2xl">
+        <Alert variant="error">{apiError}</Alert>
+        <p className="mt-4 text-sm text-slate-500">
+          Backend moet draaien op{" "}
+          <code className="rounded bg-forta-muted px-1">http://localhost:5072</code>. Herstart daarna{" "}
+          <code className="rounded bg-forta-muted px-1">npm run dev</code> in de frontend-map.
+        </p>
+      </div>
+    );
+  }
 
   const statCards = stats
     ? [

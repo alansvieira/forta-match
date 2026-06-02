@@ -21,9 +21,14 @@ if (File.Exists(configEnvPath))
     foreach (var line in File.ReadAllLines(configEnvPath))
     {
         if (line.TrimStart().StartsWith('#')) continue;
-        var parts = line.Split('=', 2, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 2)
-            Environment.SetEnvironmentVariable(parts[0].Trim(), parts[1].Trim());
+        var parts = line.Split('=', 2);
+        if (parts.Length != 2) continue;
+        var key = parts[0].Trim();
+        var value = parts[1].Trim().Trim('"');
+        if (string.IsNullOrEmpty(key)) continue;
+        Environment.SetEnvironmentVariable(key, value);
+        if (key == "MISTRAL_API_KEY" && !string.IsNullOrWhiteSpace(value))
+            builder.Configuration["Mistral:ApiKey"] = value;
     }
 }
 
@@ -36,6 +41,7 @@ builder.Services.AddDbContext<FortaDbContext>(options =>
         ?? "Data Source=forta.db"));
 
 builder.Services.AddHttpClient<MistralAiService>();
+builder.Services.AddScoped<DocumentTextExtractor>();
 builder.Services.AddScoped<CompletenessService>();
 builder.Services.AddScoped<RulesEngineService>();
 builder.Services.AddScoped<ReferralService>();
@@ -47,12 +53,22 @@ builder.Services.AddHostedService<GmailPollingService>();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
-        policy.WithOrigins("http://localhost:3000")
+        policy.WithOrigins(
+                "http://localhost:3000",
+                "http://127.0.0.1:3000")
             .AllowAnyHeader()
             .AllowAnyMethod());
 });
 
 var app = builder.Build();
+
+var mistralKey = app.Configuration["Mistral:ApiKey"]
+                 ?? Environment.GetEnvironmentVariable("MISTRAL_API_KEY");
+if (string.IsNullOrWhiteSpace(mistralKey))
+    app.Logger.LogWarning(
+        "MISTRAL_API_KEY is not set (config/.env). Intake prescan uses local letter parsing, not Mistral AI.");
+else
+    app.Logger.LogInformation("Mistral AI configured for extraction and prescan.");
 
 using (var scope = app.Services.CreateScope())
 {

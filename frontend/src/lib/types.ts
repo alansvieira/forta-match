@@ -106,6 +106,9 @@ export interface PrescanResult {
   location:        PrescanField | null;
   insurer:         PrescanField | null;
   letterText:      string | null;
+  /** mistral = LLM; local = rule-based from letter text */
+  aiSource?:       "mistral" | "local";
+  aiMessage?:      string | null;
 }
 
 export interface GenerateRuleResponse {

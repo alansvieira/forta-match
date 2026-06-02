@@ -11,12 +11,17 @@ namespace Forta.Match.Api.Controllers;
 [Route("api/notifications")]
 public class NotificationsController : ControllerBase
 {
-    private readonly FortaDbContext  _db;
+    private readonly FortaDbContext _db;
+    private readonly DocumentTextExtractor _documentText;
     private readonly IWebHostEnvironment _env;
 
-    public NotificationsController(FortaDbContext db, IWebHostEnvironment env)
+    public NotificationsController(
+        FortaDbContext db,
+        DocumentTextExtractor documentText,
+        IWebHostEnvironment env)
     {
-        _db  = db;
+        _db = db;
+        _documentText = documentText;
         _env = env;
     }
 
@@ -100,13 +105,9 @@ public class NotificationsController : ControllerBase
             var filePath = Path.Combine(_env.ContentRootPath, "uploads", n.AttachmentPath!);
             if (System.IO.File.Exists(filePath))
             {
-                try
-                {
-                    var bytes = await System.IO.File.ReadAllBytesAsync(filePath, ct);
-                    var extracted = ExtractReadableText(bytes);
-                    if (extracted.Length > 100) letterText = extracted;
-                }
-                catch { /* gebruik e-mailtekst als fallback */ }
+                var extracted = await _documentText.ExtractFromFileAsync(filePath, ct);
+                if (DocumentTextExtractor.LooksReadable(extracted))
+                    letterText = extracted;
             }
         }
 
@@ -139,21 +140,6 @@ public class NotificationsController : ControllerBase
         var prescan = await mistral.PrescanForIntakeAsync(referral.Id, letterText, ct);
 
         return Ok(new { referralId = referral.Id, prescan });
-    }
-
-    private static string ExtractReadableText(byte[] bytes)
-    {
-        var sb      = new System.Text.StringBuilder();
-        bool inWord = false;
-        foreach (var b in bytes)
-        {
-            if (b is >= 32 and < 127) { sb.Append((char)b); inWord = true; }
-            else { if (inWord) sb.Append(' '); inWord = false; }
-        }
-        var words = sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Where(w => w.Length >= 2 && w.All(c => char.IsLetterOrDigit(c) || c is '-' or '.' or '@' or '/'))
-            .ToArray();
-        return string.Join(" ", words);
     }
 
     private static readonly (string Subject, string FromName, string FromEmail, string Body)[] DemoEmails =
