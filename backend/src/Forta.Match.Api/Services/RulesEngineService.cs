@@ -172,4 +172,79 @@ public class RulesEngineService
     }
 
     public string GetCurrentRulesJson() => _currentWorkflowJson;
+
+    /// <summary>
+    /// Evaluates rules from unsaved JSON using a transient engine (does not affect the live engine).
+    /// </summary>
+    public async Task<List<RuleEvaluationDetail>> PreviewRulesAsync(
+        string rulesJson,
+        string workflowName,
+        RulesEvaluationInput input,
+        CancellationToken ct = default)
+    {
+        Workflow[] workflows;
+        try
+        {
+            workflows = JsonSerializer.Deserialize<Workflow[]>(rulesJson,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? Array.Empty<Workflow>();
+        }
+        catch (Exception ex)
+        {
+            return [new RuleEvaluationDetail("_config", false, $"Ongeldige regel-JSON: {ex.Message}")];
+        }
+
+        if (workflows.Length == 0)
+            return [new RuleEvaluationDetail("_config", false, "Geen workflows in JSON")];
+
+        var workflow = workflows.FirstOrDefault(w =>
+            string.Equals(w.WorkflowName, workflowName, StringComparison.OrdinalIgnoreCase))
+            ?? workflows[0];
+
+        if (input.extraction.RiskLevel != null)
+            input.extraction.RiskLevel = NormalizeRiskLevel(input.extraction.RiskLevel);
+
+        var ruleInputs = new[]
+        {
+            new RuleParameter("extraction", input.extraction),
+            new RuleParameter("capacity", input.capacity),
+            new RuleParameter("insurer", input.insurer)
+        };
+
+        var details = new List<RuleEvaluationDetail>();
+
+        foreach (var rule in workflow.Rules ?? Array.Empty<Rule>())
+        {
+            try
+            {
+                var miniWorkflow = new[]
+                {
+                    new Workflow
+                    {
+                        WorkflowName = workflow.WorkflowName,
+                        Rules = [rule]
+                    }
+                };
+                var previewEngine = new RulesEngine.RulesEngine(miniWorkflow, null);
+                var results = await previewEngine.ExecuteAllRulesAsync(workflow.WorkflowName, ruleInputs);
+                var r = results.FirstOrDefault();
+                if (r == null)
+                {
+                    details.Add(new RuleEvaluationDetail(rule.RuleName, false, "Geen resultaat van engine"));
+                    continue;
+                }
+
+                details.Add(new RuleEvaluationDetail(
+                    rule.RuleName,
+                    r.IsSuccess,
+                    r.IsSuccess ? r.Rule.SuccessEvent : r.ExceptionMessage ?? r.Rule.ErrorMessage
+                ));
+            }
+            catch (Exception ex)
+            {
+                details.Add(new RuleEvaluationDetail(rule.RuleName, false, $"Expressiefout: {ex.Message}"));
+            }
+        }
+
+        return details;
+    }
 }

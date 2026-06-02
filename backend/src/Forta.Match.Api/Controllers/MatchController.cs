@@ -140,6 +140,7 @@ public class MatchController : ControllerBase
 
     /// <summary>Pilot 1a — evaluate all 4 labels and return a ranked match list.</summary>
     [HttpGet("{referralId:guid}/labelrank")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<ActionResult<LabelRankingResult>> GetLabelRanking(Guid referralId, CancellationToken ct)
     {
         var referral = await _db.Referrals.Include(r => r.Extraction)

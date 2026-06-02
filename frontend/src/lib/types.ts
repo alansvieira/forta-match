@@ -137,6 +137,20 @@ export interface LabelRankingResult {
   overallRecommendation:  string;
 }
 
+export interface LabelSummary {
+  workflowName:      string;
+  displayName:       string;
+  sortOrder:         number;
+  knockoutRuleNames: string[];
+  ruleCount:         number;
+}
+
+export interface LabelCatalog {
+  rulesJson:  string;
+  updatedAt:  string | null;
+  labels:     LabelSummary[];
+}
+
 // ── Email / notifications ─────────────────────────────────────────────────────
 
 export interface EmailNotification {

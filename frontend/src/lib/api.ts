@@ -6,6 +6,7 @@ import type {
   EmailTemplate,
   GenerateRuleResponse,
   HumanFeedbackRequest,
+  LabelCatalog,
   LabelRankingResult,
   PrescanResult,
   RecommendationResult,
@@ -63,7 +64,10 @@ export const matchApi = {
     return data;
   },
   getLabelRanking: async (referralId: string) => {
-    const { data } = await api.get<LabelRankingResult>(`/api/match/${referralId}/labelrank`);
+    const { data } = await api.get<LabelRankingResult>(
+      `/api/match/${referralId}/labelrank`,
+      { params: { _: Date.now() } }
+    );
     return data;
   },
   submitFeedback: async (referralId: string, feedback: HumanFeedbackRequest) => {
@@ -188,6 +192,35 @@ export const rulesApi = {
   },
   generate: async (description: string, workflowName: string) => {
     const { data } = await api.post<GenerateRuleResponse>("/api/rules/generate", { description, workflowName });
+    return data;
+  },
+  preview: async (rulesJson: string, sampleInput: object, workflowName = "ReferralMatch") => {
+    const { data } = await api.post<{ ruleResults: RecommendationResult["ruleResults"] }>(
+      "/api/rules/preview",
+      { rulesJson, sampleInput, workflowName }
+    );
+    return data;
+  },
+};
+
+export const labelsApi = {
+  get: async () => {
+    const { data } = await api.get<LabelCatalog>("/api/labels");
+    return data;
+  },
+  update: async (rulesJson: string) => {
+    const { data } = await api.put<LabelCatalog>("/api/labels", { rulesJson });
+    return data;
+  },
+  reload: async () => {
+    const { data } = await api.post<LabelCatalog>("/api/labels/reload");
+    return data;
+  },
+  test: async (sampleInput: object, rulesJson?: string) => {
+    const { data } = await api.post<LabelRankingResult>("/api/labels/test", {
+      sampleInput,
+      rulesJson: rulesJson ?? null,
+    });
     return data;
   },
 };

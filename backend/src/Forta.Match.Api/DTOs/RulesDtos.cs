@@ -20,6 +20,16 @@ public record TestRulesResult(
     List<RuleEvaluationDetail> RuleResults
 );
 
+public record PreviewRulesRequest(
+    string RulesJson,
+    object SampleInput,
+    string WorkflowName = "ReferralMatch"
+);
+
+public record PreviewRulesResult(
+    List<RuleEvaluationDetail> RuleResults
+);
+
 public record GenerateRuleRequest(string Description, string WorkflowName);
 
 public record GenerateRuleResponse(

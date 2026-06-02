@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { rulesApi } from "@/lib/api";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { rulesApi, labelsApi } from "@/lib/api";
+import type { LabelRankingResult, LabelSummary } from "@/lib/types";
+import { RuleConditionBuilder } from "@/components/RuleConditionBuilder";
 import type { GenerateRuleResponse } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,11 +74,18 @@ const SAMPLE_INPUT = JSON.stringify({
   insurer:    { isCovered: true, capRemaining: 5000 },
 }, null, 2);
 
+const LABEL_SAMPLE_INPUT = {
+  extraction: { probableDsm: "F32.1", symptoms: "depressie, angst", age: 35, riskLevel: "crisis", region: "Utrecht", context: "Ambulante verwijzing" },
+  capacity:   { availableSlots: 5, waitingWeeks: 8 },
+  insurer:    { isCovered: true, capRemaining: 5000 },
+};
+
 // ── Rules Engine visual explanation ─────────────────────────────────────────
 
-function RulesEngineExplainer({ activeWorkflow, ruleCount }: {
+function RulesEngineExplainer({ activeWorkflow, ruleCount, labelCount }: {
   activeWorkflow: string;
   ruleCount:      number;
+  labelCount:     number;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -84,7 +93,7 @@ function RulesEngineExplainer({ activeWorkflow, ruleCount }: {
     { icon: FileText,  label: "Verwijsbrief",  sub: "PDF / e-mail",          color: "bg-slate-100 text-slate-700 border-slate-200"          },
     { icon: Brain,     label: "Mistral AI",     sub: "Extractie & tagging",   color: "bg-violet-100 text-violet-800 border-violet-200"        },
     { icon: Zap,       label: "Rules Engine",   sub: `${ruleCount} regels`,   color: "bg-forta-primary-soft text-forta-primary border-forta-border" },
-    { icon: Settings2, label: "Label ranking",  sub: "4 labels beoordeeld",   color: "bg-amber-50 text-amber-800 border-amber-200"            },
+    { icon: Settings2, label: "Label ranking",  sub: `${labelCount} labels`, color: "bg-amber-50 text-amber-800 border-amber-200"            },
   ];
 
   const outcomes = [
@@ -183,8 +192,8 @@ function RulesEngineExplainer({ activeWorkflow, ruleCount }: {
           </div>
 
           <p className="mt-4 text-[11px] text-slate-400">
-            Regels worden geëvalueerd bij elke AI Match. Bewerk expressies inline op de regelkaarten of via de JSON-tab;
-            klik <strong>Opslaan &amp; herladen</strong> om wijzigingen actief te maken. Gebruik de AI-assistent voor nieuwe regels.
+            Regels worden geëvalueerd bij elke AI Match. Stel voorwaarden samen met het visuele formulier op elke regelkaart;
+            testresultaten verschijnen live op basis van het tabblad <strong>Testen</strong>. Klik <strong>Opslaan &amp; herladen</strong> om wijzigingen actief te maken.
           </p>
         </div>
       )}
@@ -195,14 +204,23 @@ function RulesEngineExplainer({ activeWorkflow, ruleCount }: {
 // ── Rule card ────────────────────────────────────────────────────────────────
 
 function RuleCard({
-  rule, onDelete, onExpressionChange, onErrorMessageChange,
+  rule,
+  onDelete,
+  onExpressionChange,
+  onErrorMessageChange,
+  previewPassed,
+  previewMessage,
+  defaultExpanded = false,
 }: {
   rule: RuleObj;
   onDelete: () => void;
   onExpressionChange: (expression: string) => void;
   onErrorMessageChange: (message: string) => void;
+  previewPassed: boolean | null;
+  previewMessage: string | null;
+  defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const Icon  = RULE_ICONS[rule.RuleName] ?? Settings2;
   const badge = ruleLabel(rule.RuleName);
   const req   = isRequired(rule.RuleName);
@@ -238,6 +256,16 @@ function RuleCard({
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {previewPassed !== null && (
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                previewPassed ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+              )}
+            >
+              {previewPassed ? "✓ test" : "✗ test"}
+            </span>
+          )}
           {!req && (
             <button
               onClick={e => { e.stopPropagation(); onDelete(); }}
@@ -254,38 +282,118 @@ function RuleCard({
       </button>
 
       {expanded && (
-        <div className="border-t border-forta-border px-4 pb-4 pt-3 space-y-4">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
-              Expressie
-              <span className="ml-2 font-normal normal-case text-slate-400">— inline bewerkbaar</span>
-            </p>
-            <Textarea
-              value={rule.Expression}
-              onChange={e => onExpressionChange(e.target.value)}
-              onClick={e => e.stopPropagation()}
-              rows={4}
-              spellCheck={false}
-              className="font-mono text-xs leading-relaxed text-forta-primary-dark"
-              placeholder="bijv. extraction.Age >= 18 AND extraction.RiskLevel != &quot;crisis&quot;"
-            />
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
-              Foutmelding bij afwijzing
-            </p>
-            <Textarea
-              value={rule.ErrorMessage ?? ""}
-              onChange={e => onErrorMessageChange(e.target.value)}
-              onClick={e => e.stopPropagation()}
-              rows={2}
-              className="text-sm text-slate-700"
-              placeholder="Tekst die wordt getoond als de regel faalt"
-            />
-          </div>
-          <p className="text-[10px] text-slate-400">
-            Wijzigingen worden direct in de JSON bijgewerkt. Klik <strong>Opslaan &amp; herladen</strong> om ze actief te maken in de engine.
+        <div className="border-t border-forta-border px-4 pb-4 pt-3">
+          <RuleConditionBuilder
+            expression={rule.Expression}
+            errorMessage={rule.ErrorMessage ?? ""}
+            previewPassed={previewPassed}
+            previewMessage={previewMessage}
+            onExpressionChange={onExpressionChange}
+            onErrorMessageChange={onErrorMessageChange}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LabelCatalogPanel({
+  labels, rulesJson, saving, onRulesJsonChange, onSave,
+}: {
+  labels:            LabelSummary[];
+  rulesJson:         string;
+  saving:            boolean;
+  onRulesJsonChange: (v: string) => void;
+  onSave:            () => void;
+}) {
+  const [open, setOpen]       = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [labelTest, setLabelTest] = useState<LabelRankingResult | null>(null);
+
+  const runLabelTest = async () => {
+    setTesting(true);
+    try {
+      JSON.parse(rulesJson);
+      const result = await labelsApi.test(LABEL_SAMPLE_INPUT, rulesJson);
+      setLabelTest(result);
+    } catch {
+      setLabelTest(null);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/40 shadow-card overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+        <div>
+          <h2 className="font-heading font-semibold text-forta-primary-dark">Labelcatalogus</h2>
+          <p className="text-xs text-slate-600 mt-0.5">
+            Namen en regels per zorglabel — geladen uit <code className="text-[10px]">label-rules.json</code>
           </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen(v => !v)}
+          className="rounded-xl border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-50"
+        >
+          {open ? "Sluiten" : "JSON bewerken"}
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2 px-5 pb-4">
+        {labels.length === 0 ? (
+          <p className="text-xs text-slate-500">Geen labels geladen.</p>
+        ) : (
+          labels.map(l => (
+            <span
+              key={l.workflowName}
+              className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-forta-primary-dark"
+              title={`${l.ruleCount} regels · knockout: ${l.knockoutRuleNames.join(", ") || "—"}`}
+            >
+              <span className="font-bold">{l.displayName}</span>
+              <span className="text-slate-400">({l.workflowName})</span>
+            </span>
+          ))
+        )}
+      </div>
+      {open && (
+        <div className="border-t border-amber-200 bg-white p-4 space-y-3">
+          <p className="text-xs text-slate-500">
+            Elk item is een workflow met <code className="text-[10px]">WorkflowName</code>,{" "}
+            <code className="text-[10px]">DisplayName</code>,{" "}
+            <code className="text-[10px]">SortOrder</code> en <code className="text-[10px]">Rules</code>.
+            Na opslaan worden label matching en feedback-dropdowns direct bijgewerkt.
+          </p>
+          <Textarea
+            value={rulesJson}
+            onChange={e => onRulesJsonChange(e.target.value)}
+            rows={18}
+            className="font-mono text-xs leading-relaxed"
+            spellCheck={false}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={onSave} disabled={saving} className="sm:w-auto">
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? "Opslaan…" : "Labels opslaan & herladen"}
+            </Button>
+            <Button variant="secondary" onClick={runLabelTest} disabled={testing} className="sm:w-auto">
+              <Play className="mr-2 h-4 w-4" />
+              {testing ? "Testen…" : "Test met voorbeelddata"}
+            </Button>
+          </div>
+          {labelTest && labelTest.labels.length > 0 && (
+            <ul className="space-y-2 rounded-xl border border-forta-border bg-forta-muted/40 p-3">
+              {labelTest.labels.map(l => (
+                <li key={l.labelName} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-forta-primary-dark">{l.displayName}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="font-mono text-slate-600">{l.score}%</span>
+                    <StatusBadge value={l.recommendation} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>
@@ -307,6 +415,13 @@ export default function RulesPage() {
   const [activeTab,     setActiveTab]     = useState<"chat" | "test" | "json">("chat");
   const [message,       setMessage]       = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [showJsonError, setShowJsonError] = useState(false);
+  const [previewByRule, setPreviewByRule] = useState<
+    Record<string, { passed: boolean; message: string | null }>
+  >({});
+  const [expandedNewRules, setExpandedNewRules] = useState<Set<string>>(new Set());
+  const [labelRulesJson,  setLabelRulesJson]  = useState("");
+  const [labelSummaries,  setLabelSummaries]  = useState<LabelSummary[]>([]);
+  const [labelSaving,     setLabelSaving]     = useState(false);
 
   // Chat state
   const [chatHistory,   setChatHistory]   = useState<ChatMessage[]>([
@@ -317,19 +432,46 @@ export default function RulesPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    rulesApi.get("ReferralMatch").then(w => {
+    Promise.all([
+      rulesApi.get("ReferralMatch"),
+      labelsApi.get().catch(() => null),
+    ]).then(([w, catalog]) => {
       const raw = w.rulesJson;
       setRulesJson(raw);
       try {
         const parsed: WorkflowObj[] = JSON.parse(raw);
         setWorkflows(parsed);
       } catch { /* keep empty */ }
+      if (catalog) {
+        setLabelRulesJson(catalog.rulesJson);
+        setLabelSummaries(catalog.labels);
+      }
     }).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory]);
+
+  const runPreview = useCallback(async () => {
+    if (!rulesJson.trim()) return;
+    try {
+      const sampleInput = JSON.parse(testInput);
+      const result = await rulesApi.preview(rulesJson, sampleInput);
+      const map: Record<string, { passed: boolean; message: string | null }> = {};
+      for (const r of result.ruleResults) {
+        map[r.ruleName] = { passed: r.passed, message: r.message };
+      }
+      setPreviewByRule(map);
+    } catch {
+      setPreviewByRule({});
+    }
+  }, [rulesJson, testInput]);
+
+  useEffect(() => {
+    const t = setTimeout(() => { void runPreview(); }, 600);
+    return () => clearTimeout(t);
+  }, [runPreview]);
 
   const syncJson = (wf: WorkflowObj[]) => {
     const j = JSON.stringify(wf, null, 2);
@@ -350,6 +492,22 @@ export default function RulesPage() {
       setMessage({ type: "error", text: e instanceof Error ? e.message : "Ongeldige JSON of opslaan mislukt" });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveLabels = async () => {
+    setLabelSaving(true);
+    setMessage(null);
+    try {
+      JSON.parse(labelRulesJson);
+      const catalog = await labelsApi.update(labelRulesJson);
+      setLabelRulesJson(catalog.rulesJson);
+      setLabelSummaries(catalog.labels);
+      setMessage({ type: "success", text: "Labelcatalogus opgeslagen en label matching herladen." });
+    } catch (e) {
+      setMessage({ type: "error", text: e instanceof Error ? e.message : "Ongeldige label-JSON of opslaan mislukt" });
+    } finally {
+      setLabelSaving(false);
     }
   };
 
@@ -381,6 +539,33 @@ export default function RulesPage() {
         : wf
     );
     syncJson(updated);
+  };
+
+  const handleAddRule = () => {
+    const baseName = "AangepasteRegel";
+    let name = baseName;
+    let n = 1;
+    const existing = new Set((workflows[0]?.Rules ?? []).map(r => r.RuleName));
+    while (existing.has(name)) {
+      name = `${baseName}${n++}`;
+    }
+    const newRule: RuleObj = {
+      RuleName: name,
+      Expression: "extraction.Age >= 18",
+      SuccessEvent: "PASS",
+      ErrorMessage: "Voldoet niet aan de aangepaste regel",
+      ErrorType: "Error",
+      RuleExpressionType: "LambdaExpression",
+    };
+    if (!workflows.length) {
+      syncJson([{ WorkflowName: "ReferralMatch", Rules: [newRule] }]);
+    } else {
+      syncJson(workflows.map((wf, i) =>
+        i === 0 ? { ...wf, Rules: [...wf.Rules, newRule] } : wf
+      ));
+    }
+    setExpandedNewRules(s => new Set(s).add(name));
+    setMessage({ type: "success", text: `Regel "${name}" toegevoegd. Pas de voorwaarden aan en sla op.` });
   };
 
   const handleAddGeneratedRule = (ruleJson: string) => {
@@ -455,6 +640,15 @@ export default function RulesPage() {
       <RulesEngineExplainer
         activeWorkflow={mainWorkflow?.WorkflowName ?? "ReferralMatch"}
         ruleCount={rules.length}
+        labelCount={labelSummaries.length}
+      />
+
+      <LabelCatalogPanel
+        labels={labelSummaries}
+        rulesJson={labelRulesJson}
+        saving={labelSaving}
+        onRulesJsonChange={setLabelRulesJson}
+        onSave={handleSaveLabels}
       />
 
       <div className="grid gap-6 xl:grid-cols-5">
@@ -475,24 +669,41 @@ export default function RulesPage() {
               Geen regels geconfigureerd. Gebruik de AI-assistent om regels toe te voegen.
             </div>
           ) : (
-            rules.map((rule, ri) => (
-              <RuleCard
-                key={rule.RuleName + ri}
-                rule={rule}
-                onDelete={() => handleDeleteRule(0, ri)}
-                onExpressionChange={expr => handleUpdateRule(0, ri, { Expression: expr })}
-                onErrorMessageChange={msg => handleUpdateRule(0, ri, { ErrorMessage: msg })}
-              />
-            ))
+            rules.map((rule, ri) => {
+              const preview = previewByRule[rule.RuleName];
+              return (
+                <RuleCard
+                  key={rule.RuleName + ri}
+                  rule={rule}
+                  defaultExpanded={expandedNewRules.has(rule.RuleName)}
+                  previewPassed={preview?.passed ?? null}
+                  previewMessage={preview?.message ?? null}
+                  onDelete={() => handleDeleteRule(0, ri)}
+                  onExpressionChange={expr => handleUpdateRule(0, ri, { Expression: expr })}
+                  onErrorMessageChange={msg => handleUpdateRule(0, ri, { ErrorMessage: msg })}
+                />
+              );
+            })
           )}
 
-          <button
-            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-forta-border py-3 text-sm font-medium text-slate-500 transition-colors hover:border-forta-primary/40 hover:text-forta-primary"
-            onClick={() => setActiveTab("chat")}
-          >
-            <Plus className="h-4 w-4" />
-            Regel toevoegen via AI-assistent
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-dashed border-forta-primary/30 py-3 text-sm font-semibold text-forta-primary transition-colors hover:border-forta-primary hover:bg-forta-primary-soft/30"
+              onClick={handleAddRule}
+            >
+              <Plus className="h-4 w-4" />
+              Nieuwe regel
+            </button>
+            <button
+              type="button"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-dashed border-forta-border py-3 text-sm font-medium text-slate-500 transition-colors hover:border-forta-primary/40 hover:text-forta-primary"
+              onClick={() => setActiveTab("chat")}
+            >
+              <Bot className="h-4 w-4" />
+              Regel via AI-assistent
+            </button>
+          </div>
         </div>
 
         {/* ── Right: Tabs ─────────────────────────────────────────────── */}

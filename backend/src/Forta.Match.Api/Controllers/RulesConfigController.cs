@@ -88,4 +88,27 @@ public class RulesConfigController : ControllerBase
         var result = await _rulesEngine.TestRulesAsync(request.WorkflowName, input, ct);
         return Ok(new TestRulesResult(result.Recommendation, result.RuleResults));
     }
+
+    [HttpPost("preview")]
+    public async Task<ActionResult<PreviewRulesResult>> Preview([FromBody] PreviewRulesRequest request, CancellationToken ct = default)
+    {
+        try
+        {
+            JsonDocument.Parse(request.RulesJson);
+        }
+        catch
+        {
+            return BadRequest("Invalid rules JSON");
+        }
+
+        var input = JsonSerializer.Deserialize<RulesEvaluationInput>(
+            JsonSerializer.Serialize(request.SampleInput),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? new RulesEvaluationInput();
+
+        var results = await _rulesEngine.PreviewRulesAsync(
+            request.RulesJson, request.WorkflowName, input, ct);
+
+        return Ok(new PreviewRulesResult(results));
+    }
 }

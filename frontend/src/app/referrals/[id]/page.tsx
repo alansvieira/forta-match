@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { referralsApi, reviewApi, matchApi } from "@/lib/api";
+import { referralsApi, reviewApi, matchApi, labelsApi } from "@/lib/api";
 
-import type { ReferralDetail, RecommendationResult, LabelRankingResult, LabelMatchResult } from "@/lib/types";
+import type {
+  ReferralDetail, RecommendationResult, LabelRankingResult,
+  LabelMatchResult, LabelSummary,
+} from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageSkeleton } from "@/components/Skeleton";
@@ -60,14 +63,6 @@ const LABEL_COLORS: Record<string, string> = {
   JA:      "border-l-emerald-400 bg-emerald-50/40",
   TWIJFEL: "border-l-amber-400   bg-amber-50/40",
   NEE:     "border-l-red-400     bg-red-50/20",
-};
-
-const LABELS = ["FortaVolwassenen","DrBosman","HumanConcern","Psytrack"];
-const LABEL_DISPLAY: Record<string, string> = {
-  FortaVolwassenen: "Forta Volwassenen",
-  DrBosman:         "DR BOSMAN",
-  HumanConcern:     "Human Concern",
-  Psytrack:         "Psytrack",
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -194,7 +189,14 @@ function RuleChips({ rules }: { rules: LabelMatchResult["ruleResults"] }) {
   );
 }
 
-function LabelRankingSection({ ranking }: { ranking: LabelRankingResult }) {
+function LabelRankingSection({
+  ranking, onRefresh, refreshing, extractionHint,
+}: {
+  ranking:        LabelRankingResult;
+  onRefresh?:     () => void;
+  refreshing?:    boolean;
+  extractionHint?: { age?: number | null; riskLevel?: string | null; region?: string | null };
+}) {
   const [compareIdx, setCompareIdx] = useState<number | null>(null);
   const top    = ranking.labels[0];
   const others = ranking.labels.slice(1);
@@ -208,11 +210,30 @@ function LabelRankingSection({ ranking }: { ranking: LabelRankingResult }) {
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <h2 className="font-heading font-bold text-forta-primary-dark">Label matching</h2>
-          <p className="text-xs text-slate-500">{ranking.labels.length} labels beoordeeld · gesorteerd op score</p>
+          <p className="text-xs text-slate-500">
+            {ranking.labels.length} labels beoordeeld · gesorteerd op score · live uit label-rules
+          </p>
+          {extractionHint && (
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              Patiëntdata: leeftijd {extractionHint.age ?? "—"}, risico {extractionHint.riskLevel ?? "—"}
+              {extractionHint.region ? `, regio ${extractionHint.region}` : ""}
+            </p>
+          )}
         </div>
+        {onRefresh && (
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={refreshing}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-forta-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-forta-primary/30 hover:text-forta-primary disabled:opacity-50"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+            {refreshing ? "Herberekenen…" : "Herbereken"}
+          </button>
+        )}
       </div>
 
       {/* Top label — always visible */}
@@ -289,11 +310,12 @@ function LabelRankingSection({ ranking }: { ranking: LabelRankingResult }) {
 // ─── Human feedback form ──────────────────────────────────────────────────────
 
 function FeedbackForm({
-  referralId, aiTopLabel, onSubmitted,
+  referralId, aiTopLabel, labelOptions, onSubmitted,
 }: {
-  referralId:  string;
-  aiTopLabel:  string | null;
-  onSubmitted: (agreedWithAi: boolean, chosenLabel: string) => void;
+  referralId:    string;
+  aiTopLabel:    string | null;
+  labelOptions:  { labelName: string; displayName: string }[];
+  onSubmitted:   (agreedWithAi: boolean, chosenLabel: string) => void;
 }) {
   const [chosenLabel, setChosenLabel] = useState("");
   const [outcome, setOutcome]         = useState("JA");
@@ -345,8 +367,8 @@ function FeedbackForm({
             className="w-full rounded-xl border border-forta-border bg-white px-3 py-2.5 text-sm focus:border-forta-primary focus:outline-none focus:ring-1 focus:ring-forta-primary/20"
           >
             <option value="">— Kies een label —</option>
-            {LABELS.map(l => (
-              <option key={l} value={l}>{LABEL_DISPLAY[l]}</option>
+            {labelOptions.map(l => (
+              <option key={l.labelName} value={l.labelName}>{l.displayName}</option>
             ))}
             <option value="Geen">Geen passend label</option>
           </select>
@@ -398,11 +420,12 @@ function FeedbackForm({
 // ─── Feedback comparison ──────────────────────────────────────────────────────
 
 function FeedbackResult({
-  agreedWithAi, chosenLabel, aiTopLabel,
+  agreedWithAi, chosenLabel, aiTopLabel, displayName,
 }: {
   agreedWithAi: boolean;
   chosenLabel:  string;
   aiTopLabel:   string | null;
+  displayName:  (name: string | null) => string;
 }) {
   return (
     <Card className={cn("border-2", agreedWithAi ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50")}>
@@ -422,13 +445,13 @@ function FeedbackResult({
           <div className="rounded-xl bg-white border border-slate-200 p-3">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">AI-advies</p>
             <p className="font-bold text-forta-primary-dark text-sm">
-              {aiTopLabel ? LABEL_DISPLAY[aiTopLabel] ?? aiTopLabel : "—"}
+              {aiTopLabel ? displayName(aiTopLabel) : "—"}
             </p>
           </div>
           <div className="rounded-xl bg-white border border-slate-200 p-3">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Uw keuze</p>
             <p className="font-bold text-forta-primary-dark text-sm">
-              {LABEL_DISPLAY[chosenLabel] ?? chosenLabel}
+              {displayName(chosenLabel)}
             </p>
           </div>
         </div>
@@ -678,8 +701,10 @@ export default function ReferralDetailPage() {
   const [referral,     setReferral]     = useState<ReferralDetail | null>(null);
   const [ruleResults,  setRuleResults]  = useState<RecommendationResult | null>(null);
   const [labelRanking, setLabelRanking] = useState<LabelRankingResult | null>(null);
+  const [labelCatalog, setLabelCatalog] = useState<LabelSummary[]>([]);
   const [loading,      setLoading]      = useState(true);
-  const [rerunLoading, setRerunLoading] = useState(false);
+  const [rerunLoading, setRerunLoading]   = useState(false);
+  const [labelRefreshing, setLabelRefreshing] = useState(false);
   const [feedbackDone, setFeedbackDone] = useState<{ agreedWithAi: boolean; chosenLabel: string } | null>(null);
 
   const load = useCallback(() => {
@@ -688,20 +713,44 @@ export default function ReferralDetailPage() {
       referralsApi.get(id),
       matchApi.getRuleResults(id).catch(() => null),
       matchApi.getLabelRanking(id).catch(() => null),
-    ]).then(([ref, rules, labels]) => {
+      labelsApi.get().catch(() => null),
+    ]).then(([ref, rules, labels, catalog]) => {
       setReferral(ref);
       if (rules)  setRuleResults(rules);
       if (labels) setLabelRanking(labels);
+      if (catalog) setLabelCatalog(catalog.labels);
     }).finally(() => setLoading(false));
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
 
+  const refreshLabelRanking = useCallback(async () => {
+    setLabelRefreshing(true);
+    try {
+      const labels = await matchApi.getLabelRanking(id);
+      setLabelRanking(labels);
+      if (labels.labels.length > 0) {
+        setLabelCatalog(labels.labels.map(l => ({
+          workflowName:      l.labelName,
+          displayName:       l.displayName,
+          sortOrder:         0,
+          knockoutRuleNames: [],
+          ruleCount:         l.ruleResults.length,
+        })));
+      }
+    } catch {
+      setLabelRanking(null);
+    } finally {
+      setLabelRefreshing(false);
+    }
+  }, [id]);
+
   const handleRerun = async () => {
     setRerunLoading(true);
     try {
       await matchApi.run(id);
-      load();
+      await load();
+      await refreshLabelRanking();
     } finally {
       setRerunLoading(false);
     }
@@ -711,6 +760,21 @@ export default function ReferralDetailPage() {
 
   const ext     = referral.extraction;
   const hasMatch = !!referral.aiRecommendation;
+
+  const displayNameByKey = new Map<string, string>();
+  for (const l of labelRanking?.labels ?? []) {
+    displayNameByKey.set(l.labelName, l.displayName);
+  }
+  for (const l of labelCatalog) {
+    if (!displayNameByKey.has(l.workflowName)) {
+      displayNameByKey.set(l.workflowName, l.displayName);
+    }
+  }
+  const labelDisplay = (name: string | null) =>
+    name ? displayNameByKey.get(name) ?? name : "—";
+  const labelOptions = [...displayNameByKey.entries()]
+    .map(([labelName, displayName]) => ({ labelName, displayName }))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName, "nl"));
 
   const heroConfig = !hasMatch ? null
     : referral.aiRecommendation === "YES" || referral.aiRecommendation === "Yes"
@@ -800,7 +864,12 @@ export default function ReferralDetailPage() {
 
           {/* ── Label Ranking (Pilot 1a) ─────────────────────────────── */}
           {labelRanking && labelRanking.labels.length > 0 && (
-            <LabelRankingSection ranking={labelRanking} />
+            <LabelRankingSection
+              ranking={labelRanking}
+              onRefresh={refreshLabelRanking}
+              refreshing={labelRefreshing}
+              extractionHint={ext ? { age: ext.age, riskLevel: ext.riskLevel, region: ext.region } : undefined}
+            />
           )}
 
           {/* ── Human feedback / parallelrun ─────────────────────────── */}
@@ -810,15 +879,17 @@ export default function ReferralDetailPage() {
                 agreedWithAi={feedbackDone.agreedWithAi}
                 chosenLabel={feedbackDone.chosenLabel}
                 aiTopLabel={labelRanking?.topLabel ?? null}
+                displayName={labelDisplay}
               />
-            ) : (
+            ) : labelOptions.length > 0 ? (
               <FeedbackForm
                 referralId={id}
                 aiTopLabel={labelRanking?.topLabel ?? null}
+                labelOptions={labelOptions}
                 onSubmitted={(agreedWithAi, chosenLabel) =>
                   setFeedbackDone({ agreedWithAi, chosenLabel })}
               />
-            )
+            ) : null
           )}
 
           {/* Extraction */}

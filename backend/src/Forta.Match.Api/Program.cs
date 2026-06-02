@@ -46,7 +46,8 @@ builder.Services.AddScoped<CompletenessService>();
 builder.Services.AddScoped<RulesEngineService>();
 builder.Services.AddScoped<ReferralService>();
 builder.Services.AddScoped<MistralAiService>();
-builder.Services.AddSingleton<LabelMatchingService>();
+builder.Services.AddScoped<LabelCatalogStore>();
+builder.Services.AddScoped<LabelMatchingService>();
 builder.Services.AddScoped<EmailService>();
 builder.Services.AddHostedService<GmailPollingService>();
 
@@ -178,6 +179,9 @@ using (var scope = app.Services.CreateScope())
 
     var rulesEngine = scope.ServiceProvider.GetRequiredService<RulesEngineService>();
     await rulesEngine.ReloadAsync();
+
+    var labelMatching = scope.ServiceProvider.GetRequiredService<LabelMatchingService>();
+    await labelMatching.ReloadAsync();
 }
 
 if (app.Environment.IsDevelopment())

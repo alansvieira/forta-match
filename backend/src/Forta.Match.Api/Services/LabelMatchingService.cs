@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Forta.Match.Api.DTOs;
 using RulesEngine.Models;
 
@@ -6,80 +5,116 @@ namespace Forta.Match.Api.Services;
 
 public class LabelMatchingService
 {
+    private readonly LabelCatalogStore _catalog;
     private readonly ILogger<LabelMatchingService> _logger;
+    private readonly SemaphoreSlim _lock = new(1, 1);
+
     private RulesEngine.RulesEngine? _engine;
+    private List<LabelWorkflowConfig> _workflows = [];
 
-    private static readonly string[] LabelOrder = ["FortaVolwassenen", "DrBosman", "HumanConcern", "Psytrack"];
-
-    private static readonly Dictionary<string, string> DisplayNames = new()
+    public LabelMatchingService(LabelCatalogStore catalog, ILogger<LabelMatchingService> logger)
     {
-        ["FortaVolwassenen"] = "Forta Volwassenen",
-        ["DrBosman"]         = "DR BOSMAN",
-        ["HumanConcern"]     = "Human Concern",
-        ["Psytrack"]         = "Psytrack",
-    };
-
-    /// <summary>Rules that cause "NEE" if they fail (knockout).</summary>
-    private static readonly HashSet<string> KnockoutRules = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "LeeftijdCheck", "CrisisUitsluiting", "LocatieCheck",
-    };
-
-    public LabelMatchingService(ILogger<LabelMatchingService> logger)
-    {
+        _catalog = catalog;
         _logger = logger;
-        InitEngine();
     }
 
-    private void InitEngine()
+    public async Task ReloadAsync(CancellationToken ct = default)
     {
+        await _lock.WaitAsync(ct);
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "Config", "label-rules.json");
-            if (!File.Exists(path))
-                path = Path.Combine(Directory.GetCurrentDirectory(), "Config", "label-rules.json");
-            if (!File.Exists(path))
-            {
-                _logger.LogWarning("label-rules.json not found");
-                return;
-            }
+            var json = await _catalog.GetRulesJsonAsync(ct);
+            _workflows = LabelCatalogStore.ParseCatalog(json);
+            var engineWorkflows = LabelCatalogStore.ToRulesEngineWorkflows(json);
+            _engine = engineWorkflows.Length > 0
+                ? new RulesEngine.RulesEngine(engineWorkflows, null)
+                : null;
 
-            var json      = File.ReadAllText(path);
-            var workflows = JsonSerializer.Deserialize<Workflow[]>(json,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-            if (workflows?.Length > 0)
-                _engine = new RulesEngine.RulesEngine(workflows, null);
-
-            _logger.LogInformation("Label matching engine loaded with {Count} label workflows", workflows?.Length ?? 0);
+            _logger.LogInformation(
+                "Label catalog reloaded: {Count} labels ({Names})",
+                _workflows.Count,
+                string.Join(", ", _workflows.Select(w => w.WorkflowName)));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to initialise label matching engine");
+            _logger.LogError(ex, "Failed to reload label catalog");
+            _engine = null;
+            _workflows = [];
         }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<LabelSummaryDto>> GetCatalogSummaryAsync(CancellationToken ct = default)
+    {
+        if (_workflows.Count == 0)
+            await ReloadAsync(ct);
+
+        return _workflows.Select(w => new LabelSummaryDto(
+            w.WorkflowName,
+            w.GetDisplayName(),
+            w.SortOrder,
+            w.GetKnockoutRuleNames().ToList(),
+            w.Rules?.Count ?? 0
+        )).ToList();
     }
 
     public async Task<LabelRankingResult> EvaluateAllLabelsAsync(
         RulesEvaluationInput input,
         CancellationToken ct = default)
     {
-        if (_engine == null)
+        // Always reload so label-rules.json / DB edits apply without API restart.
+        await ReloadAsync(ct);
+
+        if (_engine == null || _workflows.Count == 0)
             return FallbackResult();
 
+        return await EvaluateCoreAsync(_engine, _workflows, input, ct);
+    }
+
+    /// <summary>Evaluate arbitrary catalog JSON (e.g. unsaved editor draft).</summary>
+    public Task<LabelRankingResult> EvaluateCatalogJsonAsync(
+        string catalogJson,
+        RulesEvaluationInput input,
+        CancellationToken ct = default)
+    {
+        var workflows = LabelCatalogStore.ParseCatalog(catalogJson);
+        var engineWorkflows = LabelCatalogStore.ToRulesEngineWorkflows(catalogJson);
+        if (engineWorkflows.Length == 0 || workflows.Count == 0)
+            return Task.FromResult(FallbackResult());
+
+        var engine = new RulesEngine.RulesEngine(engineWorkflows, null);
+        return EvaluateCoreAsync(engine, workflows, input, ct);
+    }
+
+    private async Task<LabelRankingResult> EvaluateCoreAsync(
+        RulesEngine.RulesEngine engine,
+        List<LabelWorkflowConfig> workflows,
+        RulesEvaluationInput input,
+        CancellationToken ct)
+    {
         var ruleParams = new[]
         {
             new RuleParameter("extraction", input.extraction),
-            new RuleParameter("capacity",   input.capacity),
-            new RuleParameter("insurer",    input.insurer),
+            new RuleParameter("capacity", input.capacity),
+            new RuleParameter("insurer", input.insurer),
         };
 
         var results = new List<LabelMatchResult>();
 
-        foreach (var labelName in LabelOrder)
+        foreach (var labelConfig in workflows)
         {
+            var labelName = labelConfig.WorkflowName;
+            var displayName = labelConfig.GetDisplayName();
+            var knockoutNames = new HashSet<string>(
+                labelConfig.GetKnockoutRuleNames(),
+                StringComparer.OrdinalIgnoreCase);
+
             try
             {
-                var ruleResults = await _engine.ExecuteAllRulesAsync(labelName, ruleParams);
+                var ruleResults = await engine.ExecuteAllRulesAsync(labelName, ruleParams);
 
                 var details = ruleResults.Select(r => new RuleEvaluationDetail(
                     r.Rule.RuleName,
@@ -88,24 +123,24 @@ public class LabelMatchingService
                 )).ToList();
 
                 var knockoutFails = details
-                    .Where(d => !d.Passed && KnockoutRules.Contains(d.RuleName))
+                    .Where(d => !d.Passed && knockoutNames.Contains(d.RuleName))
                     .ToList();
 
                 var passed = details.Count(d => d.Passed);
-                var total  = details.Count;
-                var score  = total > 0 ? (int)Math.Round((double)passed / total * 100) : 0;
+                var total = details.Count;
+                var score = total > 0 ? (int)Math.Round((double)passed / total * 100) : 0;
 
                 var recommendation = knockoutFails.Count == 0 ? "JA"
-                    : knockoutFails.Count == 1              ? "TWIJFEL"
+                    : knockoutFails.Count == 1 ? "TWIJFEL"
                     : "NEE";
 
                 var reasoning = knockoutFails.Count == 0
-                    ? $"Patiënt voldoet aan alle criteria voor {DisplayNames[labelName]}."
+                    ? $"Patiënt voldoet aan alle criteria voor {displayName}."
                     : $"Niet volledig passend: {string.Join("; ", knockoutFails.Select(d => d.Message ?? d.RuleName))}.";
 
                 results.Add(new LabelMatchResult(
                     labelName,
-                    DisplayNames[labelName],
+                    displayName,
                     score,
                     knockoutFails.Count == 0,
                     recommendation,
@@ -117,17 +152,17 @@ public class LabelMatchingService
             {
                 _logger.LogWarning(ex, "Label {Label} evaluation error", labelName);
                 results.Add(new LabelMatchResult(
-                    labelName, DisplayNames[labelName], 0, false, "NEE",
+                    labelName, displayName, 0, false, "NEE",
                     new List<RuleEvaluationDetail>(), "Evaluatie mislukt."));
             }
         }
 
-        var sorted   = results.OrderByDescending(r => r.Score).ToList();
+        var sorted = results.OrderByDescending(r => r.Score).ToList();
         var topLabel = sorted.FirstOrDefault(r => r.IsMatch)?.LabelName
                     ?? sorted.FirstOrDefault()?.LabelName;
 
-        var overall = sorted.Any(r => r.IsMatch)                       ? "JA"
-                    : sorted.Any(r => r.Recommendation == "TWIJFEL")   ? "TWIJFEL"
+        var overall = sorted.Any(r => r.IsMatch) ? "JA"
+                    : sorted.Any(r => r.Recommendation == "TWIJFEL") ? "TWIJFEL"
                     : "NEE";
 
         return new LabelRankingResult(sorted, topLabel, overall);

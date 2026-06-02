@@ -1,6 +1,9 @@
 [
   {
     "WorkflowName": "FortaVolwassenen",
+    "DisplayName": "Forta Volwassenen",
+    "SortOrder": 1,
+    "KnockoutRuleNames": ["LeeftijdCheck", "CrisisUitsluiting", "LocatieCheck"],
     "Rules": [
       {
         "RuleName": "LeeftijdCheck",
@@ -41,6 +44,9 @@
   },
   {
     "WorkflowName": "DrBosman",
+    "DisplayName": "DR BOSMAN",
+    "SortOrder": 2,
+    "KnockoutRuleNames": ["LeeftijdCheck", "CrisisUitsluiting", "LocatieCheck"],
     "Rules": [
       {
         "RuleName": "LeeftijdCheck",
@@ -74,6 +80,9 @@
   },
   {
     "WorkflowName": "HumanConcern",
+    "DisplayName": "Human Concern",
+    "SortOrder": 3,
+    "KnockoutRuleNames": ["LeeftijdCheck", "CrisisUitsluiting"],
     "Rules": [
       {
         "RuleName": "LeeftijdCheck",
@@ -107,6 +116,9 @@
   },
   {
     "WorkflowName": "Psytrack",
+    "DisplayName": "Psytrack",
+    "SortOrder": 4,
+    "KnockoutRuleNames": ["LeeftijdCheck", "TraumaProfielCheck"],
     "Rules": [
       {
         "RuleName": "LeeftijdCheck",
